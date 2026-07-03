@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PCM — Planejamento e Controle da Manutenção</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="topbar-logo">⚙️</span>
+      <span class="topbar-title">PCM</span>
+      <span class="topbar-sub">Planejamento e Controle da Manutenção</span>
+    </div>
+    <div class="topbar-actions">
+      <!-- MELHORIA 2: Botão de Backup -->
+      <div style="position:relative;">
+        <button id="btnBackup" class="notif-btn" onclick="toggleBackupPanel()" title="Backup e Restauração">
+          💾 <span style="font-size:13px;font-weight:700;">Backup</span>
+        </button>
+      </div>
+      <div class="notif-wrap" id="notifWrap">
+        <button class="notif-btn" id="notifBtn" onclick="toggleNotifPanel()" title="Notificações">
+          🔔
+          <span class="notif-badge" id="notifBadge" style="display:none">0</span>
+        </button>
+        <div class="notif-panel" id="notifPanel" style="display:none">
+          <div class="notif-header">
+            <span>Notificações</span>
+            <button class="notif-close" onclick="toggleNotifPanel()">✕</button>
+          </div>
+          <div class="notif-list" id="notifList">
+            <div class="notif-empty">Nenhuma notificação pendente.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- TOAST DE ALERTA -->
+  <div class="toast-alert" id="toastAlert" style="display:none">
+    <span id="toastMsg"></span>
+    <button onclick="document.getElementById('toastAlert').style.display='none'">✕</button>
+  </div>
+
+  <div class="app-layout">
+
+    <aside class="sidebar">
+      <nav>
+        <button class="nav-btn active" data-tab="inventario" onclick="abrirTab('inventario')">
+          <span class="nav-icon">📋</span> Inventário
+        </button>
+        <button class="nav-btn" data-tab="plano" onclick="abrirTab('plano')">
+          <span class="nav-icon">📅</span> Plano PCM
+        </button>
+        <button class="nav-btn" data-tab="cronograma" onclick="abrirTab('cronograma')">
+          <span class="nav-icon">🗓️</span> Cronograma
+        </button>
+        <button class="nav-btn" data-tab="os" onclick="abrirTab('os')">
+          <span class="nav-icon">🔧</span> Ordens de Serviço
+        </button>
+        <button class="nav-btn" data-tab="forn" onclick="abrirTab('forn')">
+          <span class="nav-icon">🏭</span> Fornecedores
+        </button>
+        <button class="nav-btn" data-tab="dash" onclick="abrirTab('dash')">
+          <span class="nav-icon">📊</span> Dashboard
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <span class="chip">💾 LocalStorage</span>
+      </div>
+    </aside>
+
+    <main class="main">
+
+      <!-- ABA 1 — INVENTÁRIO PCM -->
+      <section class="tab active" id="inventario">
+        <div class="page-header">
+          <div>
+            <h1>Inventário PCM</h1>
+            <p class="page-desc">GUT, Criticidade e Próxima Manutenção calculados automaticamente.</p>
+          </div>
+          <button class="btn btn-primary" onclick="adicionarEquipamento()">＋ Equipamento</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table-inv" id="tableInventario">
+            <thead>
+              <tr>
+                <th class="col-fixed">Atributo</th>
+                <th colspan="999" class="muted th-equip">Equipamentos →</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyInventario"></tbody>
+          </table>
+          <div class="empty-state" id="emptyInventario" style="display:none">
+            <div class="empty-icon">📋</div>
+            <div>Nenhum equipamento cadastrado.</div>
+            <button class="btn btn-primary" onclick="adicionarEquipamento()" style="margin-top:10px">＋ Adicionar primeiro equipamento</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;justify-content:flex-end;">
+          <button class="btn btn-primary" id="btnSalvarInventario" onclick="salvarInventarioDraft()">Salvar</button>
+        </div>
+      </section>
+
+      <!-- ABA 2 — PLANO PCM -->
+      <section class="tab" id="plano">
+        <div class="page-header">
+          <div>
+            <h1>Plano PCM</h1>
+            <p class="page-desc">TAG e Equipamento são preenchidos automaticamente do Inventário. Selecione a periodicidade para calcular a Próxima Data.</p>
+          </div>
+          <button class="btn btn-primary" onclick="adicionarPlano()">＋ Plano</button>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>TAG</th>
+                <th>Equipamento</th>
+                <th>Periodicidade</th>
+                <th>Atividade</th>
+                <th>Responsável</th>
+                <th>Próxima Data</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbodyPlano"></tbody>
+          </table>
+          <div class="empty-state" id="emptyPlano" style="display:none">
+            <div class="empty-icon">📅</div>
+            <div>Nenhum plano cadastrado.</div>
+            <div style="font-size:12px;color:#9ca3af;margin-top:6px;">Cadastre equipamentos no Inventário e clique em + Plano para vincular.</div>
+            <button class="btn btn-primary" onclick="adicionarPlano()" style="margin-top:10px">＋ Adicionar plano</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;justify-content:flex-end;">
+          <button class="btn btn-primary" id="btnSalvarPlano" onclick="salvarPlanoDraft()">Salvar</button>
+        </div>
+      </section>
+
+      <!-- ABA 3 — CRONOGRAMA ANUAL -->
+      <section class="tab" id="cronograma">
+        <div class="page-header">
+          <div>
+            <h1>Cronograma Anual</h1>
+            <p class="page-desc">Gerado automaticamente a partir do Inventário e do Plano PCM.</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-primary" id="btnCronHoje" onclick="cronogramaHoje()">📅 Hoje</button>
+            <button class="btn" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#374151;font-weight:700;" id="btnProxManut" onclick="togglePainelProxManut()">🔔 Próximas</button>
+          </div>
+        </div>
+
+        <!-- Filtros -->
+        <div class="panel" style="margin-bottom:16px;padding:14px 18px;">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:160px;">
+              <label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;">Equipamento</label>
+              <select id="filtroEquip" onchange="renderCronograma()" style="min-width:160px;"></select>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:130px;">
+              <label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;">Situação</label>
+              <select id="filtroSituacao" onchange="renderCronograma()">
+                <option value="">Todas</option>
+                <option value="ok">Em dia</option>
+                <option value="near">Próximas</option>
+                <option value="late">Atrasadas</option>
+              </select>
+            </div>
+            <div id="freqAutoWrap" style="display:none;flex-direction:column;gap:4px;min-width:130px;">
+              <label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;">Frequência (Plano PCM)</label>
+              <div id="freqAutoValor" style="padding:7px 10px;background:#eff6ff;border:1px solid rgba(29,78,216,.25);border-radius:7px;font-size:13px;font-weight:700;color:var(--primary);"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:130px;">
+              <label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;">Responsável</label>
+              <select id="filtroResp" onchange="renderCronograma()" style="min-width:130px;"></select>
+            </div>
+            <!-- Navegação de ano -->
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+              <button class="btn" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#374151;font-weight:700;padding:7px 12px;" onclick="cronogramaAnoAnterior()">◀</button>
+              <span id="cronogramaAnoLabel" style="font-size:18px;font-weight:900;color:#1a1a2e;min-width:52px;text-align:center;"></span>
+              <button class="btn" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#374151;font-weight:700;padding:7px 12px;" onclick="cronogramaAnoProximo()">▶</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Legenda -->
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;font-weight:600;color:#374151;">
+          <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border-radius:50%;background:#16a34a;display:inline-block;"></span>Futura</span>
+          <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border-radius:50%;background:#d97706;display:inline-block;"></span>Próxima (≤7 dias)</span>
+          <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border-radius:50%;background:#dc2626;display:inline-block;"></span>Atrasada</span>
+          <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border-radius:50%;background:#6366f1;display:inline-block;"></span>Hoje</span>
+        </div>
+
+        <!-- Tabela cronograma -->
+        <div class="table-wrap" id="cronogramaWrap">
+          <div class="empty-state" id="emptyCronograma">
+            <div class="empty-icon">🗓️</div>
+            <div>Nenhum dado disponível.</div>
+            <div style="font-size:12px;color:#9ca3af;margin-top:6px;">Cadastre equipamentos no Inventário com Última Manutenção e adicione um Plano PCM.</div>
+          </div>
+        </div>
+
+        <!-- Painel lateral Próximas Manutenções -->
+        <div id="painelProxManut" class="painel-prox-manut">
+          <div style="padding:16px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-weight:800;font-size:14px;">🔔 Próximas Manutenções</span>
+            <button onclick="togglePainelProxManut()" style="background:none;border:none;cursor:pointer;font-size:16px;color:#6b7280;padding:2px 6px;border-radius:6px;">✕</button>
+          </div>
+          <div id="listaPainelProxManut" style="overflow-y:auto;flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
+      </section>
+
+      <!-- ABA 4 — ORDENS DE SERVIÇO -->
+      <section class="tab" id="os">
+        <div class="page-header">
+          <div>
+            <h1>Ordens de Serviço</h1>
+            <p class="page-desc">Registro e acompanhamento de todas as ordens.</p>
+          </div>
+          <button class="btn btn-primary" onclick="adicionarOS()">＋ Nova OS</button>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Nº OS</th>
+                <th>Data</th>
+                <th>Equipamento</th>
+                <th>Tipo</th>
+                <th>Descrição</th>
+                <th>Horas</th>
+                <th>Custo (R$)</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbodyOS"></tbody>
+          </table>
+          <div class="empty-state" id="emptyOS" style="display:none">
+            <div class="empty-icon">🔧</div>
+            <div>Nenhuma ordem de serviço registrada.</div>
+            <button class="btn btn-primary" onclick="adicionarOS()" style="margin-top:10px">＋ Nova OS</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA 4 — FORNECEDORES -->
+      <section class="tab" id="forn">
+        <div class="page-header">
+          <div>
+            <h1>Fornecedores</h1>
+            <p class="page-desc">Cadastro de fornecedores e prestadores de serviço.</p>
+          </div>
+          <button class="btn btn-primary" onclick="adicionarFornecedor()">＋ Fornecedor</button>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Fornecedor</th>
+                <th>Contato</th>
+                <th>Telefone</th>
+                <th>E-mail</th>
+                <th>Serviço</th>
+                <th>Observações</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbodyFornecedores"></tbody>
+          </table>
+          <div class="empty-state" id="emptyForn" style="display:none">
+            <div class="empty-icon">🏭</div>
+            <div>Nenhum fornecedor cadastrado.</div>
+            <button class="btn btn-primary" onclick="adicionarFornecedor()" style="margin-top:10px">＋ Novo fornecedor</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA 5 — DASHBOARD -->
+      <section class="tab" id="dash">
+        <div class="page-header">
+          <div>
+            <h1>Dashboard PCM</h1>
+            <p class="page-desc">Visão geral atualizada automaticamente.</p>
+          </div>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi kpi-total">
+            <div class="kpi-label">Total de Equipamentos</div>
+            <div class="kpi-value" id="kpiTotal">0</div>
+          </div>
+          <div class="kpi kpi-ok">
+            <div class="kpi-label">Operando</div>
+            <div class="kpi-value" id="kpiOperando">0</div>
+          </div>
+          <div class="kpi kpi-warn">
+            <div class="kpi-label">Em Manutenção</div>
+            <div class="kpi-value" id="kpiManut">0</div>
+          </div>
+          <div class="kpi kpi-pend">
+            <div class="kpi-label">Pendente</div>
+            <div class="kpi-value" id="kpiPend">0</div>
+          </div>
+        </div>
+
+        <div class="canvas-row">
+          <div class="chart-card">
+            <h3>Status dos Equipamentos</h3>
+            <div class="chart-wrap-sq">
+              <canvas id="graficoStatus"></canvas>
+            </div>
+            <small>Operando / Em Manutenção / Pendente</small>
+          </div>
+          <div class="chart-card chart-card-grow">
+            <h3>Criticidade GUT</h3>
+            <div class="chart-wrap-bar">
+              <canvas id="graficoGut"></canvas>
+            </div>
+            <small>Baixa / Média / Alta / Crítica</small>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:16px">
+          <h3 style="margin-bottom:10px">Quantidade por Tipo de Equipamento</h3>
+          <div id="qtdEquipamentos" class="qtd-list">Sem dados</div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="./script.js"></script>
+</body>
+</html>
