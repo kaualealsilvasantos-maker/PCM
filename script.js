@@ -59,9 +59,15 @@ function getPlanoSource() {
 
 function salvarInventarioDraft() {
   if (!inventarioDraft || !hasDraftInventario) return;
+  console.log("ANTES SALVAR", inventarioDraft);
+  console.trace("inventario sobrescrito (salvarInventarioDraft)");
+  console.log(inventarioDraft);
   inventario = inventarioDraft;
+
+  console.log("DEPOIS SALVAR", inventario);
   inventarioDraft = null;
   hasDraftInventario = false;
+
 
   // Re-sincroniza TAG/Equipamento no Plano para garantir reconhecimento imediato após salvar.
   // Mantém a arquitetura atual: inventario/plano são a fonte central.
@@ -380,7 +386,20 @@ function buildBadge(dataOuStatus) {
 // Recomputar todos
 // ========================
 function atualizarComputados(l) {
+  console.trace("ATUALIZARCOMPUTADOS (antes de calcularGUT)");
+  console.log('linha', l?.tag, l?.G, l?.U, l?.T);
   calcularGUT(l);
+  console.log(
+    "DEPOIS calcularGUT",
+    l.tag,
+    l.G,
+    l.U,
+    l.T,
+    l.GUT,
+    l.criticidade
+  );
+
+
 
   const res = calcularStatusManutencao(l);
   l.proximaManutencao = res?.proxima ?? null;
@@ -401,8 +420,11 @@ function atualizarComputados(l) {
 }
 
 function recomputeAll() {
+  console.trace("RECOMPUTEALL (antes de atualizarComputados)");
+  console.log(inventario);
   inventario.forEach(l => atualizarComputados(l));
 }
+
 
 // ========================
 // NOTIFICAÇÕES
@@ -540,7 +562,9 @@ function renderInventario() {
   tbody.innerHTML = '';
 
   const emptyEl = getEl('emptyInventario');
+  console.log("SOURCE", getInventarioSource());
   const invSource = getInventarioSource();
+
 
   if (invSource.length === 0) {
     emptyEl.style.display = 'block';
@@ -584,7 +608,9 @@ function renderInventario() {
       const td = document.createElement('td');
       td.className = 'col-equip';
 
+      console.log("RENDER", l.tag, attr.key, l[attr.key]);
       switch (attr.type) {
+
         case 'text': {
           const inp = document.createElement('input');
           inp.type = 'text';
@@ -618,14 +644,22 @@ function renderInventario() {
           inp.style.width = '70px';
           inp.addEventListener('input', () => {
             ensureInventarioDraft();
+            console.log(
+    "MESMO OBJETO?",
+    l === getInventarioSource().find(e => e.tag === l.tag)
+);
             l[attr.key] = toGUTValue(inp.value);
+            console.log("INPUT", l.tag, l.G, l.U, l.T);
+            atualizarComputados(l);
             // Atualiza apenas os campos readonly sem re-renderizar a tabela
             atualizarReadonlysPorEquip(l);
           });
 
+
           td.appendChild(inp);
           break;
         }
+
         case 'select': {
           const sel = document.createElement('select');
           ['Operando','Em Manutenção','Pendente'].forEach(opt => {
@@ -723,17 +757,20 @@ function renderInventario() {
 
 // Atualiza somente os campos readonly (GUT, criticidade) sem re-renderizar a tabela toda
 function atualizarReadonlysPorEquip(l) {
+  const source = getInventarioSource();
+
   document.querySelectorAll(`input[data-attr="GUT"]`).forEach(inp => {
     const key = inp.dataset.equip;
-    const equip = inventario.find(e => (e.tag || e.equipamento) === key);
+    const equip = source.find(e => (e.tag || e.equipamento) === key);
     if (equip) inp.value = equip.GUT ?? '';
   });
   document.querySelectorAll(`input[data-attr="criticidade"]`).forEach(inp => {
     const key = inp.dataset.equip;
-    const equip = inventario.find(e => (e.tag || e.equipamento) === key);
+    const equip = source.find(e => (e.tag || e.equipamento) === key);
     if (equip) inp.value = equip.criticidade ?? '';
   });
 }
+
 
 // ========================
 // RENDER — Plano PCM
@@ -1069,8 +1106,13 @@ function renderDashboard() {
 // Render completo
 // ========================
 function recomputeAndRender(save = true) {
+  console.trace("RECOMPUTE->inventario sobrescrito?");
+  console.log(inventario);
   recomputeAll();
+  console.trace("RENDER INVENTARIO->inventario fonte atual");
+  console.log(inventario);
   renderInventario();
+
   renderPlano();
   renderOS();
   renderFornecedores();
@@ -1481,9 +1523,17 @@ function abrirTab(id) {
   getEl(id).classList.add('active');
   const btn = document.querySelector(`.nav-btn[data-tab="${id}"]`);
   if (btn) btn.classList.add('active');
+
+  if (id === 'inventario') {
+    if (!inventarioDraft) ensureInventarioDraft();
+    hasDraftInventario = true;
+    renderInventario();
+  }
+
   if (id === 'dash') renderDashboard();
   if (id === 'cronograma') renderCronograma();
 }
+
 
 // ========================
 // Init
@@ -1509,6 +1559,11 @@ function initFromStorage() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initFromStorage();
+
+  // Se a aba inicial for Inventário, garanta que os inputs/handlers nasçam sobre inventarioDraft.
+  if (!inventarioDraft) ensureInventarioDraft();
+  hasDraftInventario = true;
+
   recomputeAndRender(false);
 
   setTimeout(() => {
@@ -1517,6 +1572,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.addEventListener('beforeunload', () => saveState());
 });
+
 
 // ========================
 // CRONOGRAMA ANUAL
