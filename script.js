@@ -59,28 +59,23 @@ function getPlanoSource() {
 
 function salvarInventarioDraft() {
   if (!inventarioDraft || !hasDraftInventario) return;
-  console.log("ANTES SALVAR", inventarioDraft);
-  console.trace("inventario sobrescrito (salvarInventarioDraft)");
-  console.log(inventarioDraft);
-  inventario = inventarioDraft;
 
-  console.log("DEPOIS SALVAR", inventario);
+  inventario = inventarioDraft;
   inventarioDraft = null;
   hasDraftInventario = false;
 
-
   // Re-sincroniza TAG/Equipamento no Plano para garantir reconhecimento imediato após salvar.
   // Mantém a arquitetura atual: inventario/plano são a fonte central.
-  // 1) remove planos que não têm mais equipamento correspondente
   plano = plano.filter(p => {
     const inv = getInventarioParaPlano(p);
     return !!inv;
   });
 
-  // 2) garante recomputação e renderizações globais
-  // recomputeAndRender() já faz saveState(). Remover saveState() duplicado evita commits redundantes.
+  // UX: renderiza e mostra flash message mantendo a aba.
   recomputeAndRender();
+  mostrarToast('Equipamento Cadastrado com sucesso', '✅');
 }
+
 
 
 
@@ -90,9 +85,11 @@ function salvarPlanoDraft() {
   planoDraft = null;
   hasDraftPlano = false;
 
-  // recomputeAndRender() já faz saveState().
+  // UX: renderiza e mostra flash message mantendo a aba.
   recomputeAndRender();
+  mostrarToast('Cadastrado com sucesso', '✅');
 }
+
 
 
 
@@ -440,7 +437,15 @@ function atualizarNotificacoes() {
     alertas.push({ equip: l.equipamento || l.tag || '(sem nome)', badge });
   }
   // Atrasadas (diff < 0) primeiro, depois hoje, depois próximas
-  alertas.sort((a, b) => a.badge.days - b.badge.days);
+  // Ordenação requerida: atrasadas → hoje → próximos 7 dias
+  alertas.sort((a, b) => {
+    const rank = (d) => (d < 0 ? 0 : d === 0 ? 1 : 2);
+    const ra = rank(a.badge.days);
+    const rb = rank(b.badge.days);
+    if (ra !== rb) return ra - rb;
+    return a.badge.days - b.badge.days;
+  });
+
 
   const badgeEl = getEl('notifBadge');
   const listEl  = getEl('notifList');
@@ -564,6 +569,12 @@ function renderInventario() {
   const emptyEl = getEl('emptyInventario');
   console.log("SOURCE", getInventarioSource());
   const invSource = getInventarioSource();
+
+  console.log("[INV] hasDraftInventario =", hasDraftInventario);
+  console.log("[INV] inventarioDraft existe =", !!inventarioDraft);
+  console.log("[INV] invSource === inventario ?", invSource === inventario);
+  console.log("[INV] invSource === inventarioDraft ?", invSource === inventarioDraft);
+
 
 
   if (invSource.length === 0) {
@@ -690,21 +701,112 @@ function renderInventario() {
           td.appendChild(inp);
           break;
         }
-        case 'date': {
+case 'date': {
           const inp = document.createElement('input');
           inp.type = 'date';
           // FIX TIMEZONE: usar toISODate que constrói a partir do objeto local
           inp.value = toISODate(l.ultimaManutencao);
           inp.addEventListener('change', () => {
+            console.log('[INV-ULTIMAMANUT] change START', {
+              equip: l.tag || l.equipamento,
+              inpValue: inp.value
+            });
+
+            console.log("[DATE] antes do ensure", {
+              hasDraftInventario,
+              draftExiste: !!inventarioDraft
+            });
+
             ensureInventarioDraft();
-            // FIX: parsear como data local, não UTC
-            l.ultimaManutencao = inp.value ? parseDateLocal(inp.value) : null;
+
+            console.log("[DATE] depois do ensure", {
+              hasDraftInventario,
+              draftExiste: !!inventarioDraft,
+              sourceIsDraft: getInventarioSource() === inventarioDraft
+            });
+
+const parsed = inp.value ? parseDateLocal(inp.value) : null;
+            console.log('[INV-ULTIMAMANUT] parseDateLocal(inp.value) =>', parsed);
+
+            // Identidade: compara o objeto l do handler com os objetos presentes no source
+            const invSourceRef = getInventarioSource();
+            const sameByRef = invSourceRef.includes(l);
+            console.log('[INV-ULTIMAMANUT] identity check at START', {
+              invSourceHasSameRef: sameByRef,
+              invSourceLen: invSourceRef.length
+            });
+            const byRefFind = invSourceRef.find(x => x === l);
+            console.log('[INV-ULTIMAMANUT] invSourceRef.find(x===l) =>', byRefFind);
+
+            l.ultimaManutencao = parsed;
+            console.log('[INV-ULTIMAMANUT] l.ultimaManutencao after assign =>', l.ultimaManutencao);
+            console.log('[INV-ULTIMAMANUT] identity check after assign (before render)', {
+              invSourceHasSameRef: invSourceRef.includes(l),
+              lRef: l
+            });
+
+            const isoBeforeRender = toISODate(l.ultimaManutencao);
+            console.log('[INV-ULTIMAMANUT] toISODate(l.ultimaManutencao) before renderInventario =>', isoBeforeRender);
+
+            // Guardar ids para comparar após render
+            const tagKey = l.tag;
+            const equipKey = l.equipamento;
+            const ultimaBefore = l.ultimaManutencao;
+            // Cria uma 
+
+            // ========================
+            // DIAGNÓSTICO (logs temporários)
+            // ========================
+            const refAntes = l;
+            const chave = l.tag || l.equipamento;
+
+
             // CORREÇÃO: registrar uma nova manutenção destrava o status manual,
             // permitindo que o cálculo automático (Operando/Em Manutenção/Pendente)
             // volte a valer. Antes, uma vez marcado manualmente, o status ficava
             // travado para sempre, mesmo após a manutenção ser concluída.
             l.statusManual = false;
             // Não propaga no estado central até clicar em Salvar
+
+            // Atualiza somente os campos calculados para refletir imediatamente:
+            // - próximaManutencao (badge)
+            // - status automático (select)
+            // - cache usado em notificações.
+            atualizarComputados(l);
+
+            // DIAGNÓSTICO: log antes do render
+            // (não altera comportamento)
+            console.log('[REF-ANTES]', {
+              refAntesIgualRefDepois: undefined,
+              refAntesUltima: refAntes?.ultimaManutencao,
+              sourceIsDraft: getInventarioSource() === inventarioDraft,
+              hasDraftInventario
+            });
+
+            // Chamadas de diagnóstico devem ocorrer imediatamente antes do render Inventário
+            renderInventario();
+
+            // DIAGNÓSTICO: log depois do render
+            const refDepois = getInventarioSource().find(x =>
+              (x.tag && x.tag === chave) ||
+              (x.equipamento && x.equipamento === chave)
+            );
+
+            console.log("[REF]", {
+              refAntesIgualRefDepois: refAntes === refDepois,
+              refAntesUltima: refAntes?.ultimaManutencao,
+              refDepoisUltima: refDepois?.ultimaManutencao,
+              sourceIsDraft: getInventarioSource() === inventarioDraft,
+              hasDraftInventario
+            });
+
+            return;
+
+            // Como a tabela é transposta e não há um mapeamento 1:1 estável para atualizar
+
+            // sem quebrar a renderização, o caminho seguro para atualizar apenas os componentes
+            // afetados SEM alterar arquitetura é re-renderizar só o Inventário (não o sistema todo).
+            // Isso mantém intacto o comportamento atual dos demais módulos.
             renderInventario();
           });
 
@@ -1121,6 +1223,26 @@ function recomputeAndRender(save = true) {
   // Atualiza cronograma se a aba estiver ativa
   if (getEl('cronograma')?.classList.contains('active')) renderCronograma();
   if (save) saveState();
+}
+
+// ========================
+// Salvar — Ordens de Serviço / Fornecedores
+// ========================
+// Persistência já ocorre nos listeners de input/change (saveState()) de cada
+// campo; aqui apenas garantimos o commit final, renderizamos somente a aba
+// correspondente (permanecendo nela) e reaproveitamos o toast existente.
+function salvarOSDraft() {
+  saveState();
+  renderOS();
+  atualizarNotificacoes();
+  mostrarToast('Ordem de Serviço cadastrada com sucesso.', '✅');
+}
+
+function salvarFornecedoresDraft() {
+  saveState();
+  renderFornecedores();
+  atualizarNotificacoes();
+  mostrarToast('Fornecedor cadastrado com sucesso.', '✅');
 }
 
 // ========================
@@ -1559,6 +1681,7 @@ function initFromStorage() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initFromStorage();
+  carregarManutencoesFeitas();
 
   // Se a aba inicial for Inventário, garanta que os inputs/handlers nasçam sobre inventarioDraft.
   if (!inventarioDraft) ensureInventarioDraft();
@@ -1580,6 +1703,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let cronogramaAno = new Date().getFullYear();
 let painelProxAberto = false;
+
+// ── Estado "FEITO" das ocorrências do Cronograma ────────────────────────────
+// Persistido em chave própria no LocalStorage, independente de LS_KEY,
+// para não alterar a forma como Inventário/Plano/OS/Fornecedores são salvos.
+const LS_MANUT_FEITAS = 'pcm_manutencoes_feitas';
+let manutencoesFeitas = {};
+
+function carregarManutencoesFeitas() {
+  try {
+    const raw = localStorage.getItem(LS_MANUT_FEITAS);
+    manutencoesFeitas = raw ? JSON.parse(raw) : {};
+  } catch { manutencoesFeitas = {}; }
+}
+
+function salvarManutencoesFeitas() {
+  try { localStorage.setItem(LS_MANUT_FEITAS, JSON.stringify(manutencoesFeitas)); } catch { /* ignora */ }
+}
+
+// Cada ocorrência é identificada pela TAG (ou equipamento) + data exata,
+// garantindo que cada manutenção tenha seu próprio estado independente.
+function chaveOcorrenciaManut(linha, data) {
+  const ident = normalizeKey(linha.tag) || normalizeKey(linha.equip);
+  return `${ident}__${toISODate(data)}`;
+}
 
 const MESES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
@@ -1890,12 +2037,15 @@ function renderCronograma() {
         const usaGrid = datas.length >= 4;
         chips.className = 'cron-chips' + (usaGrid ? ' cron-chips-grid' : '');
         datas.forEach(d => {
-          const tipo  = classificarData(d);
-          const chip  = document.createElement('div');
-          chip.className   = `cron-chip ${chipClass(tipo)}`;
+          const tipo   = classificarData(d);
+          const chave  = chaveOcorrenciaManut(linha, d);
+          const feito  = !!manutencoesFeitas[chave];
+          const chip   = document.createElement('div');
+          chip.className   = `cron-chip ${feito ? 'chip-feito' : chipClass(tipo)}`;
           chip.textContent = d.getDate();
-          const label = { today:'Hoje', late:'Atrasada', near:'Próxima', ok:'Futura' }[tipo];
+          const label = feito ? 'Feito' : { today:'Hoje', late:'Atrasada', near:'Próxima', ok:'Futura' }[tipo];
           chip.title = `${formatDateBR(d)} — ${label}`;
+          chip.addEventListener('click', () => abrirModalConfirmarManutencao(linha, d));
           chips.appendChild(chip);
         });
         td.appendChild(chips);
@@ -1923,6 +2073,56 @@ function cronogramaHoje() {
     const ths = document.querySelectorAll('.cron-th-mes');
     ths[mesAtual]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }, 100);
+}
+
+// ── Confirmação de Manutenção (marcar ocorrência como FEITO) ─────────────────
+function abrirModalConfirmarManutencao(linha, data) {
+  const old = document.getElementById('modalConfirmarManut');
+  if (old) old.remove();
+
+  const chave = chaveOcorrenciaManut(linha, data);
+  const jaFeito = !!manutencoesFeitas[chave];
+
+  const overlay = document.createElement('div');
+  overlay.id = 'modalConfirmarManut';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;
+    display:flex;align-items:center;justify-content:center;padding:16px;
+  `;
+
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    background:#fff;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.18);
+    width:100%;max-width:400px;display:flex;flex-direction:column;overflow:hidden;
+  `;
+
+  modal.innerHTML = `
+    <div style="padding:18px 20px;border-bottom:1px solid #e5e7eb;">
+      <div style="font-size:15px;font-weight:800;color:#1a1a2e;">Manutenção dia ${formatDateBR(data)}</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:4px;">${escapeHtml(linha.equipLabel)} · ${escapeHtml(linha.tag)}</div>
+      ${jaFeito ? '<div style="font-size:12px;color:#0d9488;margin-top:6px;font-weight:700;">✔ Já marcada como Feito</div>' : ''}
+    </div>
+    <div style="padding:16px 20px;display:flex;justify-content:flex-end;gap:10px;">
+      <button id="btnVoltarConfirmarManut" class="btn" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#374151;font-weight:700;">Voltar</button>
+      <button id="btnSalvarConfirmarManut" class="btn btn-primary">Salvar</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const fechar = () => overlay.remove();
+
+  document.getElementById('btnVoltarConfirmarManut').addEventListener('click', fechar);
+  overlay.addEventListener('click', e => { if (e.target === overlay) fechar(); });
+
+  document.getElementById('btnSalvarConfirmarManut').addEventListener('click', () => {
+    manutencoesFeitas[chave] = true;
+    salvarManutencoesFeitas();
+    fechar();
+    renderCronograma();
+    atualizarNotificacoes();
+  });
 }
 
 // ── Painel Próximas Manutenções ───────────────────────────────────────────────
@@ -2028,6 +2228,8 @@ window.adicionarFornecedor = adicionarFornecedor;
 window.toggleNotifPanel = toggleNotifPanel;
 window.salvarInventarioDraft = salvarInventarioDraft;
 window.salvarPlanoDraft = salvarPlanoDraft;
+window.salvarOSDraft = salvarOSDraft;
+window.salvarFornecedoresDraft = salvarFornecedoresDraft;
 // MELHORIA 2 — Backup
 window.exportarBackup = exportarBackup;
 
