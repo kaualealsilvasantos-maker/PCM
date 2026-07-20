@@ -402,6 +402,11 @@ function atualizarComputados(l) {
   l.proximaManutencao = res?.proxima ?? null;
   l._manutStatus = res; // cache: usado por notificações e badge sem recalcular
 
+  // MUDANÇA 1 — fonte única de verdade para alertas: reaproveita a mesma
+  // lógica de ocorrências/estado FEITO já usada pelo Cronograma Anual, para
+  // que a Central de Notificações nunca divirja do que é exibido nos chips.
+  l._alertaCronograma = calcularAlertaCronograma(l);
+
   if (l.statusManual) return;
 
   if (!res) {
@@ -426,11 +431,13 @@ function recomputeAll() {
 // ========================
 // NOTIFICAÇÕES
 // ========================
-// Consome o cache _manutStatus já calculado por recomputeAll() — zero recálculo.
+// MUDANÇA 1: consome o cache _alertaCronograma (mesma lógica/estado do
+// Cronograma Anual, incluindo ocorrências marcadas como FEITO) já calculado
+// por recomputeAll() — zero recálculo, fonte única de verdade.
 function atualizarNotificacoes() {
   const alertas = [];
   for (const l of inventario) {
-    const res = l._manutStatus;
+    const res = l._alertaCronograma;
     if (!res) continue;
     const badge = buildBadge(res);
     if (!badge || badge.kind === 'ok') continue;
@@ -485,9 +492,10 @@ document.addEventListener('click', e => {
 });
 
 function exibirToastInicial() {
-  // Usa o cache já calculado por recomputeAll — sem recalcular
-  const atrasadas = inventario.filter(l => l._manutStatus?.status === 'late');
-  const proximas  = inventario.filter(l => l._manutStatus?.status === 'near' || l._manutStatus?.status === 'today');
+  // Usa o cache já calculado por recomputeAll — sem recalcular.
+  // MUDANÇA 1: mesma fonte usada pela Central de Notificações e Cronograma.
+  const atrasadas = inventario.filter(l => l._alertaCronograma?.status === 'late');
+  const proximas  = inventario.filter(l => l._alertaCronograma?.status === 'near' || l._alertaCronograma?.status === 'today');
 
   let msg = '';
   if (atrasadas.length > 0) msg += `🚨 ${atrasadas.length} manutenção(ões) atrasada(s). `;
@@ -1784,6 +1792,45 @@ function chipClass(tipo) {
   return map[tipo] ?? 'chip-ok';
 }
 
+// ========================
+// MUDANÇA 1 — Fonte única de alerta (Cronograma × Central de Notificações)
+// ========================
+// Não recalcula datas nem periodicidade: reutiliza integralmente
+// gerarDatasCronograma() e classificarData() (as mesmas funções que pintam
+// os chips do Cronograma) e o mesmo mapa manutencoesFeitas/chaveOcorrenciaManut.
+// Isso garante que uma ocorrência marcada como FEITO some das notificações,
+// e que uma ocorrência atrasada e não concluída SEMPRE apareça — sem duplicar
+// lógica de cálculo de atraso/vencimento.
+function calcularAlertaCronograma(linhaInv) {
+  const p = getPlanoParaEquip(linhaInv);
+  if (!p?.periodicidade || !linhaInv.ultimaManutencao) return null;
+
+  const anoAtual = new Date().getFullYear();
+  // Ano atual + próximo, para não perder ocorrências "próximas" (até 7 dias)
+  // que caiam na virada do ano — mesma geração de datas, apenas dois anos.
+  const datas = [
+    ...gerarDatasCronograma(linhaInv, p, anoAtual),
+    ...gerarDatasCronograma(linhaInv, p, anoAtual + 1)
+  ];
+
+  const prioridade = { late: 0, today: 1, near: 2 };
+  let melhor = null;
+
+  for (const d of datas) {
+    const chave = chaveOcorrenciaManut(linhaInv, d);
+    if (manutencoesFeitas[chave]) continue; // já concluída — mesmo estado do chip "Feito"
+
+    const tipo = classificarData(d); // 'late' | 'today' | 'near' | 'ok'
+    if (tipo === 'ok') continue; // fora da janela de alerta
+
+    if (!melhor || prioridade[tipo] < prioridade[melhor.status]) {
+      melhor = { proxima: d, diff: diffDays(d, hoje()), status: tipo };
+    }
+  }
+
+  return melhor; // { proxima, diff, status } ou null — mesmo formato aceito por buildBadge()
+}
+
 // Situação geral do equipamento para o filtro de Situação no Cronograma.
 // Usa calcularStatusManutencao — mesma lógica do Inventário e Notificações.
 function situacaoGeral(linhaInv) {
@@ -2102,7 +2149,8 @@ function abrirModalConfirmarManutencao(linha, data) {
       <div style="font-size:12px;color:#6b7280;margin-top:4px;">${escapeHtml(linha.equipLabel)} · ${escapeHtml(linha.tag)}</div>
       ${jaFeito ? '<div style="font-size:12px;color:#0d9488;margin-top:6px;font-weight:700;">✔ Já marcada como Feito</div>' : ''}
     </div>
-    <div style="padding:16px 20px;display:flex;justify-content:flex-end;gap:10px;">
+    <div style="padding:16px 20px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
+      <button id="btnDesfazerConfirmarManut" class="btn" ${jaFeito ? '' : 'disabled'} style="background:#fff;border:1px solid #fca5a5;color:#b91c1c;font-weight:700;${jaFeito ? '' : 'opacity:.45;cursor:not-allowed;'}margin-right:auto;">Desfazer</button>
       <button id="btnVoltarConfirmarManut" class="btn" style="background:#f1f5f9;border:1px solid #e2e8f0;color:#374151;font-weight:700;">Voltar</button>
       <button id="btnSalvarConfirmarManut" class="btn btn-primary">Salvar</button>
     </div>
@@ -2120,6 +2168,23 @@ function abrirModalConfirmarManutencao(linha, data) {
     manutencoesFeitas[chave] = true;
     salvarManutencoesFeitas();
     fechar();
+    // Recalcula o estado (fonte única) e sincroniza Cronograma + Central de
+    // Notificações + contador do sino, sem refresh da página.
+    recomputeAll();
+    renderCronograma();
+    atualizarNotificacoes();
+  });
+
+  // MUDANÇA 2 — Desfazer: reverte APENAS a ocorrência selecionada. Não mexe
+  // em outras datas/ocorrências, periodicidade, próxima manutenção,
+  // Inventário ou Plano PCM. O estado (atrasada/hoje/próxima) é recalculado
+  // automaticamente pela mesma lógica existente (classificarData / calcularAlertaCronograma).
+  document.getElementById('btnDesfazerConfirmarManut').addEventListener('click', () => {
+    if (!manutencoesFeitas[chave]) return; // nada para desfazer
+    delete manutencoesFeitas[chave];
+    salvarManutencoesFeitas();
+    fechar();
+    recomputeAll();
     renderCronograma();
     atualizarNotificacoes();
   });
